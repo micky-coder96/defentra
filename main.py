@@ -1,9 +1,9 @@
-import joblib
 import os
+import joblib
+from typing import List
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
 
 # Security, Defense, SIEM, Threat Intelligence, and Notifications modules
 from waf_rules import detect_sql_injection, detect_xss
@@ -70,20 +70,23 @@ app.add_middleware(
 # --- WAF & Active IPS Middleware (SQLi, XSS, Auto-Blocking & SIEM Logging) ---
 @app.middleware("http")
 async def waf_security_middleware(request: Request, call_next):
-    client_ip = request.client.host
+    client_ip = request.client.host if request.client else "unknown"
     query_string = str(request.url.query)
 
     body_content = ""
     if request.method in ["POST", "PUT"]:
-        body_bytes = await request.body()
-        body_content = body_bytes.decode("utf-8", errors="ignore")
+        try:
+            body_bytes = await request.body()
+            body_content = body_bytes.decode("utf-8", errors="ignore")
+        except Exception:
+            body_content = ""
 
     combined_payload = query_string + " " + body_content
 
     # Inspect for SQL Injection
     if detect_sql_injection(combined_payload):
         print(f"[WAF SECURITY ALERT] SQL Injection detected from IP: {client_ip}")
-        block_malicious_ip(client_ip)  # Active Defense
+        block_malicious_ip(client_ip)  # Active Defense OS Firewall Block
         log_siem_event(
             event_type="WAF_SQLI_BLOCK",
             source_ip=client_ip,
@@ -98,7 +101,7 @@ async def waf_security_middleware(request: Request, call_next):
     # Inspect for Cross-Site Scripting (XSS)
     if detect_xss(combined_payload):
         print(f"[WAF SECURITY ALERT] XSS attempt detected from IP: {client_ip}")
-        block_malicious_ip(client_ip)  # Active Defense
+        block_malicious_ip(client_ip)  # Active Defense OS Firewall Block
         log_siem_event(
             event_type="WAF_XSS_BLOCK",
             source_ip=client_ip,
@@ -145,6 +148,21 @@ class EmailAlert(BaseModel):
     prediction: str
     confidence_score: float
     contains_suspicious_url: bool
+
+
+# --- Root & Test Endpoints ---
+@app.get("/")
+def read_root():
+    return {
+        "status": "Online",
+        "platform": "Defentra Security Operations Center Core Engine",
+    }
+
+
+@app.get("/api/search")
+def search_database(q: str = ""):
+    """Search endpoint protected by the WAF middleware."""
+    return {"results": f"Successfully searched for query: {q}"}
 
 
 # --- Network Endpoints ---
